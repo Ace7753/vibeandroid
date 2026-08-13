@@ -17,9 +17,8 @@ Install the [**vibe.apk**](vibe.apk) found in the root of this project onto your
 *Note: This is the Universal version—it works on Pixel 6, older phones, tablets, and budget devices.*
 
 ### 2️⃣ Install Termux
-Download and install **Termux** from **[F-Droid](https://f-droid.org/en/packages/com.termux/)**. 
 > [!CAUTION]
-> Do **NOT** use the version from the Google Play Store; it is outdated and will fail to install the engine.
+> Use the version from the Google Play Store; it is perfectly functional and will install the engine. If it doesn't work then use **[F-Droid](https://f-droid.org/en/packages/com.termux/)**.
 
 ### 3️⃣ Start the Engine
 Open Termux and paste this "Clean Start" command. It will set up everything automatically:
