@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_CODE_PERMISSIONS = 101
         private const val TAG = "VibeApp"
         private const val CHANNEL_ID = "vibe_downloads"
-        private const val DEFAULT_URL = "http://10.0.0.251:8081/"
+        private const val DEFAULT_URL = "http://127.0.0.1:8080/"
         private const val PREF_KEY_URL = "server_url"
     }
 
@@ -76,10 +76,6 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Loading Vibe UI: $savedUrl")
         webView.loadUrl(savedUrl)
 
-        // Secret URL Switcher: Long click handler
-        // Note: In WebView, we need to handle clicks on the WebView itself or a specific element.
-        // For simplicity, we can use a dedicated secret gesture if the user wants.
-        // Let's use a long click on the WebView as a fallback.
         webView.setOnLongClickListener {
             showUrlDialog()
             true
@@ -88,40 +84,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUrlDialog() {
         val builder = AlertDialog.Builder(this)
-        builder.setTitle("Switch Server")
-        builder.setMessage("Enter the new Cloud URL (e.g., https://vibe.render.com/)")
+        builder.setTitle("Server Settings")
+        
+        val currentUrl = prefs.getString(PREF_KEY_URL, DEFAULT_URL)
+        builder.setMessage("Current URL: $currentUrl\n\nType a new URL to connect to a different server.")
 
         val input = EditText(this)
-        input.setText(prefs.getString(PREF_KEY_URL, DEFAULT_URL))
+        input.setText(currentUrl)
         builder.setView(input)
 
         builder.setPositiveButton("Connect") { _, _ ->
             var newUrl = input.text.toString().trim()
-            if (!newUrl.startsWith("http")) newUrl = "http://$newUrl"
-            if (!newUrl.endsWith("/")) newUrl = "$newUrl/"
-            
-            prefs.edit().putString(PREF_KEY_URL, newUrl).apply()
-            webView.loadUrl(newUrl)
-            Toast.makeText(this, "Connecting to $newUrl", Toast.LENGTH_SHORT).show()
+            if (newUrl.isNotEmpty()) {
+                if (!newUrl.startsWith("http")) newUrl = "http://$newUrl"
+                if (!newUrl.endsWith("/")) newUrl = "$newUrl/"
+                prefs.edit().putString(PREF_KEY_URL, newUrl).apply()
+                webView.loadUrl(newUrl)
+                Toast.makeText(this, "Switched to $newUrl", Toast.LENGTH_SHORT).show()
+            }
         }
-        builder.setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
+        
         builder.setNeutralButton("Reset to Local") { _, _ ->
             prefs.edit().putString(PREF_KEY_URL, DEFAULT_URL).apply()
             webView.loadUrl(DEFAULT_URL)
+            Toast.makeText(this, "Reset to $DEFAULT_URL", Toast.LENGTH_SHORT).show()
         }
 
+        builder.setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
         builder.show()
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Downloads"
-            val descriptionText = "Download progress and completion"
-            val importance = NotificationManager.IMPORTANCE_LOW
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_LOW)
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -134,7 +131,6 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
-
         val needed = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), REQUEST_CODE_PERMISSIONS)
@@ -146,9 +142,6 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            setSupportZoom(true)
-            builtInZoomControls = true
-            displayZoomControls = false
             loadWithOverviewMode = true
             useWideViewPort = true
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -158,17 +151,14 @@ class MainActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 progressBar.visibility = View.VISIBLE
             }
-
             override fun onPageFinished(view: WebView?, url: String?) {
                 progressBar.visibility = View.GONE
             }
-
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
-                    Log.e(TAG, "Connection Error: ${error?.description}")
-                    // Show dialog if connection fails, so user can fix URL
-                    if (error?.errorCode == -6 || error?.errorCode == -2) { // Connection refused or Name not resolved
-                         Toast.makeText(this@MainActivity, "Could not reach server. Long-press screen to change URL.", Toast.LENGTH_LONG).show()
+                    Log.e(TAG, "Load Error: ${error?.description}")
+                    if (error?.errorCode == -6) { // Connection refused
+                         Toast.makeText(this@MainActivity, "Server not found. Is Termux running?", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -188,12 +178,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startManualDownload(url: String, fileName: String) {
-        Toast.makeText(this, "Starting download...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Starting Download...", Toast.LENGTH_SHORT).show()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(fileName)
-            .setContentText("Connecting...")
+            .setContentText("Downloading from internal server...")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setProgress(100, 0, true)
@@ -203,25 +193,23 @@ class MainActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                Log.d(TAG, "Requesting: $url")
                 val request = Request.Builder().url(url).build()
                 val response = client.newCall(request).execute()
+                if (!response.isSuccessful) throw Exception("Server error ${response.code}")
                 
-                if (!response.isSuccessful) throw Exception("Server returned ${response.code}")
-                
-                val body = response.body ?: throw Exception("Empty response body")
+                val body = response.body ?: throw Exception("Body is empty")
                 val totalBytes = body.contentLength()
                 val inputStream: InputStream = body.byteStream()
                 
                 val outputStream: OutputStream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val contentValues = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, response.header("Content-Type") ?: "application/octet-stream")
+                        put(MediaStore.MediaColumns.MIME_TYPE, response.header("Content-Type") ?: "audio/mpeg")
                         put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                     }
                     val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                        ?: throw Exception("Failed to create MediaStore entry")
-                    contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open output stream")
+                        ?: throw Exception("Storage Error")
+                    contentResolver.openOutputStream(uri) ?: throw Exception("Write Error")
                 } else {
                     val file = java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
                     java.io.FileOutputStream(file)
@@ -236,12 +224,10 @@ class MainActivity : AppCompatActivity() {
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                         out.write(buffer, 0, bytesRead)
                         totalRead += bytesRead
-                        
                         val now = System.currentTimeMillis()
                         if (now - lastUpdate > 1000 && totalBytes > 0) {
                             val progress = (totalRead * 100 / totalBytes).toInt()
-                            notificationBuilder.setProgress(100, progress, false)
-                                .setContentText("$progress% Downloaded")
+                            notificationBuilder.setProgress(100, progress, false).setContentText("$progress% Downloaded")
                             notificationManager.notify(notificationId, notificationBuilder.build())
                             lastUpdate = now
                         }
@@ -249,20 +235,14 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 withContext(Dispatchers.Main) {
-                    notificationBuilder.setContentText("Download Complete")
-                        .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                        .setOngoing(false)
-                        .setProgress(0, 0, false)
+                    notificationBuilder.setContentText("Complete").setSmallIcon(android.R.drawable.stat_sys_download_done)
+                        .setOngoing(false).setProgress(0, 0, false)
                     notificationManager.notify(notificationId, notificationBuilder.build())
                     Toast.makeText(this@MainActivity, "Saved to Downloads", Toast.LENGTH_SHORT).show()
                 }
-
             } catch (e: Exception) {
-                Log.e(TAG, "Download Failed: ${e.message}", e)
                 withContext(Dispatchers.Main) {
-                    notificationBuilder.setContentText("Download Failed: ${e.message}")
-                        .setOngoing(false)
-                        .setProgress(0, 0, false)
+                    notificationBuilder.setContentText("Failed: ${e.message}").setOngoing(false).setProgress(0, 0, false)
                     notificationManager.notify(notificationId, notificationBuilder.build())
                     Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                 }

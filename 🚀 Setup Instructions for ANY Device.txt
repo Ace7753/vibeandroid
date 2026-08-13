@@ -1,0 +1,24 @@
+🚀 Setup Instructions for ANY Device
+1. Install the Vibe App
+
+Find the vibe.apk in your project root. This is the Universal version. You can share this file with anyone.
+
+
+2. Install Termux
+On the target device, install Termux.
+
+
+3. Run the "Universal Engine" Command
+Paste this command into Termux on the device:
+cd ~ && rm -rf vibeandroid && git clone https://github.com/Ace7753/vibeandroid.git && cd vibeandroid/app && pkg install python ffmpeg rust binutils git -y && pip install spotdl fastapi uvicorn python-multipart && python3 -m uvicorn main:app --host 127.0.0.1 --port 8080
+4. Vibe On!
+4a. Wait for Termux to show Uvicorn running.
+4b. Open the Vibe App.
+4c. If the screen is blank, long-press it and tap "Reset to Local".
+
+
+🛠️ Maintenance & Shortcuts
+To make it easier for people to use, tell them to run this once in Termux to create a shortcut:
+[echo "alias vibe='cd ~/vibeandroid/app && python3 -m uvicorn main:app --host 127.0.0.1 --port 8080'" >> ~/.bashrc && source ~/.bashrc]
+
+Now they can just type vibe to start the engine!
